@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent.parent
 
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 DESCRIPTION = "logging_fastapi"
 # The text of the README file
 README = (HERE / "README.md").read_text()

@@ -1,1 +1,1 @@
-from .logging import logging
+from .logging_fastapi import logging
