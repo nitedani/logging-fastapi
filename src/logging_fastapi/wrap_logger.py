@@ -3,8 +3,13 @@ import ast
 import loguru
 import json
 
+from opentelemetry.trace import (
+    INVALID_SPAN,
+    INVALID_SPAN_CONTEXT,
+    get_current_span,
+)
 from .utils import is_obj_or_dict
-from .ctx import request_id_ctx, error_ctx
+from .ctx import request_id_ctx, error_ctx, span_ctx
 
 
 def pre_formatter(message):
@@ -29,6 +34,17 @@ def pre_formatter(message):
     request_id = request_id_ctx.get(None)
     if request_id:
         logObj["requestId"] = request_id
+
+    span = get_current_span()
+
+    if span == INVALID_SPAN:
+        _span_ctx = span_ctx.get(None)
+    else:
+        _span_ctx = span.get_span_context()
+
+    if _span_ctx is not None and _span_ctx is not INVALID_SPAN_CONTEXT:
+        logObj["traceId"] = format(_span_ctx.trace_id, "032x")
+        logObj["spanId"] = format(_span_ctx.span_id, "016x")
 
     error = error_ctx.get(None)
     if error:
@@ -66,11 +82,18 @@ class WrapLogger:
         json_msg = pre_formatter(message)
         return self.original_logger.debug(json_msg)
 
+    def metrics(self, message):
+        json_msg = pre_formatter(message)
+        return self.original_logger.log("METRICS", json_msg)
+
     def opt(self, *args, **kwargs):
         return WrapLogger(self.original_logger.opt(*args, **kwargs))
 
     def bind(self, *args, **kwargs):
         return WrapLogger(self.original_logger.bind(*args, **kwargs))
+
+    def level(self, *args, **kwargs):
+        return self.original_logger.level(*args, **kwargs)
 
     def log(self, level, message):
         json_msg = pre_formatter(message)

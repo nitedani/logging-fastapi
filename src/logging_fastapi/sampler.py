@@ -15,6 +15,6 @@ def run_samplers():
         total_cpu = psutil.cpu_percent()
         metrics["cpu"] = {"load": total_cpu}
 
-        logger.debug(metrics)
+        logger.metrics(metrics)
 
     schedule.every(10).seconds.do(collect)

@@ -4,13 +4,16 @@ import time
 import httpx
 import schedule
 import pydash
+import gzip
 
 
 class LokiTransport:
-    def __init__(self, loki_options):
-        self.url = loki_options["url"] + "/loki/api/v1/push"
-        self.base_labels = loki_options["labels"]
-        self.headers = {"Content-type": "application/json"}
+    def __init__(self, service_name, loki_options):
+        self.url = loki_options["host"] + "/loki/api/v1/push"
+        self.base_labels = {"service": service_name}
+        if "labels" in loki_options:
+            self.base_labels = {**self.base_labels, **loki_options["labels"]}
+        self.headers = {"Content-type": "application/json", "Content-Encoding": "gzip"}
         self.streams = []
         self.client = httpx.AsyncClient()
         self.job = schedule.every(5).seconds.do(self.send_batch)
@@ -22,33 +25,11 @@ class LokiTransport:
             for entry in stream["entries"]:
                 values.append([json.dumps(entry["ts_ns"]), entry["line"]])
             json_streams.append({"stream": stream["labels"], "values": values})
-        return json_streams
+        return gzip.compress(bytes(json.dumps({"streams": json_streams}), "utf-8"))
 
-    def prepare_proto_streams(self, streams):
-        proto_streams = []
-        for stream in streams:
-            labels = pydash.clone_deep(stream["labels"])
-            proto_labels = "{"
-            proto_labels += f'level="{labels["level"]}"'
-            del labels["level"]
-            for key in labels:
-                proto_labels += f',{key}="{labels[key]}"'
-            proto_labels += "}"
-            proto_streams.append(
-                {
-                    "labels": proto_labels,
-                    "entries": pydash.map_(
-                        stream["entries"],
-                        lambda entry: {
-                            "line": entry["line"],
-                            "ts": json.dumps(entry["ts_ns"] / 1000 / 1000),
-                        },
-                    ),
-                }
-            )
-        return proto_streams
-
-    async def post(self, payload):
+    async def post(self, payload: str):
+        if self.client.is_closed:
+            self.client = httpx.AsyncClient()
         try:
             async with self.client as client:
                 await client.post(self.url, data=payload, headers=self.headers)
@@ -58,8 +39,7 @@ class LokiTransport:
     def send_batch(self):
         if len(self.streams) == 0:
             return
-        json_streams = self.prepare_json_streams(self.streams)
-        payload = json.dumps({"streams": json_streams})
+        payload = self.prepare_json_streams(self.streams)
         self.streams = []
         create_task(self.post(payload))
 
@@ -80,7 +60,6 @@ class LokiTransport:
         if level == "warning":
             level = "warn"
         labels = {**self.base_labels, "level": level}
-
         entry = self.entry_from_record(record)
         self.collect(labels, entry)
         if level == "critical":

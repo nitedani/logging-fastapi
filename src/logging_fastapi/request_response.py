@@ -1,10 +1,12 @@
 import time
 from cuid import cuid
-from fastapi import Request, Response
+from fastapi import FastAPI, Request, Response
 from starlette.responses import PlainTextResponse
+from opentelemetry import trace
 
+from .otel import span
 from .storage import get_logger
-from .ctx import error_ctx, request_id_ctx
+from .ctx import error_ctx, request_id_ctx, span_ctx
 from .utils import format_exc
 
 
@@ -44,20 +46,21 @@ def log_request_response(req: Request, res: Response):
             logger.warning(to_log)
 
 
-def apply_middleware(app):
+def apply_middleware(app: FastAPI):
+    @app.middleware("http")
+    async def logger_middleware(req: Request, call_next):
+        request_id_ctx.set(cuid())
+        span_ctx.set(trace.get_current_span().get_span_context())
+        req.state.start_time = time.time() * 1000
+        res = await call_next(req)
+        req.state.time = time.time() * 1000 - req.state.start_time
+        log_request_response(req, res)
+        return res
+
     @app.exception_handler(Exception)
     async def validation_exception_handler(req, exc: Exception):
         res = PlainTextResponse("Internal Server Error", status_code=500)
         req.state.time = time.time() * 1000 - req.state.start_time
         error_ctx.set(format_exc())
-        log_request_response(req, res)
-        return res
-
-    @app.middleware("http")
-    async def logger_middleware(req: Request, call_next):
-        request_id_ctx.set(cuid())
-        req.state.start_time = time.time() * 1000
-        res = await call_next(req)
-        req.state.time = time.time() * 1000 - req.state.start_time
         log_request_response(req, res)
         return res
