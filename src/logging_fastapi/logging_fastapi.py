@@ -61,6 +61,6 @@ def logging(app: FastAPI, service_name, console: bool = False, loki=None, tempo=
     run_samplers()
     run_scheduler()
     intercept_std_logging()
+    instrument_app(app, service_name)
     if tempo is not None:
-        instrument_app(app)
-        create_tracer(service_name, tempo)
+        create_tracer(tempo)

@@ -47,21 +47,11 @@ def span(name: str = None):
     return _span
 
 
-def instrument_app(app: FastAPI):
+def instrument_app(app: FastAPI, service_name: str):
     FastAPIInstrumentor().instrument_app(app)
-
-
-def create_tracer(service_name, tempo):
     trace.set_tracer_provider(
         TracerProvider(resource=Resource.create({SERVICE_NAME: service_name}))
     )
-
-    jaeger_exporter = JaegerExporter(
-        collector_endpoint=tempo["host"] + "/api/traces",
-    )
-
-    trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(jaeger_exporter))
-
     set_global_textmap(
         CompositePropagator(
             [
@@ -72,3 +62,11 @@ def create_tracer(service_name, tempo):
             ]
         )
     )
+
+
+def create_tracer(tempo):
+    jaeger_exporter = JaegerExporter(
+        collector_endpoint=tempo["host"] + "/api/traces",
+    )
+
+    trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(jaeger_exporter))
